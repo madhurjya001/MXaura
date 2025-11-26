@@ -1,13 +1,11 @@
 const express = require("express");
 const { Client, GatewayIntentBits, EmbedBuilder } = require("discord.js");
 const fs = require("fs");
-require("dotenv").config();
+require("dotenv").config(); // load TOKEN from .env
 
 const app = express();
 app.get("/", (req, res) => res.send("🌌 MXaura bot is online!"));
-
-// ✅ PORT FIX FOR RENDER
-app.listen(process.env.PORT || 3000, () => console.log("🌐 MXaura web server running!"));
+app.listen(3000, () => console.log("🌐 MXaura web server running!"));
 
 const client = new Client({
   intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent],
@@ -15,91 +13,75 @@ const client = new Client({
 
 const prefix = "*";
 const DATA_FILE = "auraData.json";
-
-// YOUR PERMISSIONS
-const OWNER_ID = "768471167769116712";
-const FRIEND_ID = "1299049965863178424";
-
 let aura = {};
 
-// ✅ SAFE JSON LOAD (CRASH PROTECTION)
+// Load aura data if exists
 if (fs.existsSync(DATA_FILE)) {
-  try {
-    aura = JSON.parse(fs.readFileSync(DATA_FILE));
-  } catch {
-    console.log("⚠ auraData.json corrupted, resetting...");
-    aura = {};
-    fs.writeFileSync(DATA_FILE, JSON.stringify({}));
-  }
+  aura = JSON.parse(fs.readFileSync(DATA_FILE));
 }
 
+// Save aura data
 function saveAura() {
   fs.writeFileSync(DATA_FILE, JSON.stringify(aura, null, 2));
 }
 
+// Get or create user's aura (random 50–150)
 function getUserAura(id) {
-  if (!aura[id]) aura[id] = { aura: Math.floor(Math.random() * 101) + 50 };
+  if (!aura[id]) {
+    aura[id] = { aura: Math.floor(Math.random() * 101) + 50 };
+  }
   return aura[id];
 }
 
-// ====== DAILY RESET (INDIA) ======
-
+// ✅ Reset aura at 12AM India time
 function resetDailyAura() {
   console.log("🔄 Resetting aura data for new day (IST)!");
   for (let user in aura) {
-    aura[user].aura = Math.floor(Math.random() * 101) + 50;
+    aura[user].aura = Math.floor(Math.random() * 101) + 50; // random 50–150
     delete aura[user].pendingBattle;
   }
   saveAura();
 }
 
+// Convert current UTC time to IST (UTC +5:30)
 function getISTDate() {
   const now = new Date();
   const utc = now.getTime() + now.getTimezoneOffset() * 60000;
   return new Date(utc + 5.5 * 60 * 60 * 1000);
 }
 
+// Check every minute if it’s 12AM IST
 setInterval(() => {
   const now = getISTDate();
   if (now.getHours() === 0 && now.getMinutes() === 0) resetDailyAura();
 }, 60000);
 
-// ====== BOT READY ======
+client.on("ready", () => console.log(`✅ Logged in as ${client.user.tag}`));
 
-client.on("ready", () => console.log(✅ Logged in as ${client.user.tag}));
-
-// ✅ ANTI-CRASH HANDLERS
-process.on("unhandledRejection", err => console.log("❗ Error:", err));
-process.on("uncaughtException", err => console.log("❗ Crash:", err));
-
-// ====== COMMAND HANDLER ======
-
-client.on("messageCreate", async msg => {
+client.on("messageCreate", async (msg) => {
   if (!msg.content.startsWith(prefix) || msg.author.bot) return;
-
   const args = msg.content.slice(prefix.length).trim().split(/ +/);
   const command = args.shift().toLowerCase();
   const user = msg.author;
   const userData = getUserAura(user.id);
 
+  // 🌌 Aura Commands
   if (command === "aura") {
-
-    // -------- GAMBLE --------
-
+    // Gamble command
     if (args[0] === "gamble") {
       const amount = parseInt(args[1]);
-      if (!amount || amount <= 0) return msg.reply("⚠️ Enter a valid amount!");
-      if (userData.aura < amount) return msg.reply("💀 Not enough aura!");
+      if (isNaN(amount) || amount <= 0) return msg.reply("⚠️ Enter a valid aura amount!");
+      if (userData.aura < amount) return msg.reply("❌ You don’t have enough aura!");
 
       const win = Math.random() < 0.5;
-      win ? userData.aura += amount : userData.aura -= amount;
+      if (win) userData.aura += amount;
+      else userData.aura -= amount;
 
       saveAura();
-      return msg.reply(win ? 🎲 You won! +${amount} aura. : 💀 You lost! -${amount} aura.);
+      return msg.reply(win ? `🎲 You won! +${amount} aura.` : `💀 You lost! -${amount} aura.`);
     }
 
-    // -------- BATTLE --------
-
+    // Battle command
     if (args[0] === "battle") {
       const amount = parseInt(args[1]);
       const target = msg.mentions.users.first();
@@ -109,151 +91,137 @@ client.on("messageCreate", async msg => {
       const targetData = getUserAura(target.id);
       if (userData.aura < amount || targetData.aura < amount) return msg.reply("❌ Not enough aura to battle!");
 
+      msg.channel.send(`⚔️ ${target}, ${user.username} challenges you for **${amount} aura!** Type *aura accept to fight.`);
       aura[target.id].pendingBattle = { challenger: user.id, amount };
       saveAura();
-      return msg.channel.send(⚔️ ${target}, ${user.username} challenges you for **${amount} aura!** Type *aura accept);
+      return;
     }
 
-    // -------- ACCEPT --------
-
+    // Accept battle
     if (args[0] === "accept") {
       const pending = aura[user.id]?.pendingBattle;
-      if (!pending) return msg.reply("❌ No one challenged you!");
+      if (!pending) return msg.reply("❌ No one has challenged you!");
 
       const challenger = await client.users.fetch(pending.challenger);
-      const cData = getUserAura(challenger.id);
-      const tData = getUserAura(user.id);
+      const challengerData = getUserAura(challenger.id);
+      const targetData = getUserAura(user.id);
+      const amount = pending.amount;
 
-      delete tData.pendingBattle;
+      delete targetData.pendingBattle;
 
-      const cr = Math.floor(Math.random() * 100);
-      const tr = Math.floor(Math.random() * 100);
+      const challengerRoll = Math.floor(Math.random() * 100);
+      const targetRoll = Math.floor(Math.random() * 100);
+      let result = `🎲 ${challenger.username} rolled ${challengerRoll}\n🎲 ${user.username} rolled ${targetRoll}\n`;
 
-      let result = 🎲 ${challenger.username} rolled ${cr}\n🎲 ${user.username} rolled ${tr}\n;
-
-      if (tr > cr) {
-        tData.aura += pending.amount;
-        cData.aura -= pending.amount;
-        result += 🏆 ${user.username} wins ${pending.amount} aura!;
-      } else if (cr > tr) {
-        cData.aura += pending.amount;
-        tData.aura -= pending.amount;
-        result += 🏆 ${challenger.username} wins ${pending.amount} aura!;
+      if (targetRoll > challengerRoll) {
+        targetData.aura += amount;
+        challengerData.aura -= amount;
+        result += `🏆 ${user.username} wins **${amount} aura!**`;
+      } else if (challengerRoll > targetRoll) {
+        targetData.aura -= amount;
+        challengerData.aura += amount;
+        result += `🏆 ${challenger.username} wins **${amount} aura!**`;
       } else result += "🤝 It's a tie!";
 
       saveAura();
       return msg.channel.send(result);
     }
 
-    // -------- LEADERBOARD --------
-
+    // Leaderboard
     if (args[0] === "leaderboard") {
-      const sorted = Object.entries(aura).sort((a,b)=>b[1].aura-a[1].aura).slice(0,10);
-      const list = await Promise.all(sorted.map(async ([id,data],i)=>{
-        const u = await client.users.fetch(id).catch(()=>null);
-        return ${i+1}. ${u?.username || "Unknown"} — ${data.aura};
+      const sorted = Object.entries(aura).sort((a, b) => b[1].aura - a[1].aura).slice(0, 10);
+      const lb = await Promise.all(sorted.map(async ([id, data], i) => {
+        const u = await client.users.fetch(id).catch(() => null);
+        return `${i + 1}. ${u ? u.username : "Unknown"} — ${data.aura}`;
       }));
-
       const embed = new EmbedBuilder()
         .setTitle("🏆 MXaura Leaderboard")
-        .setDescription(list.join("\n"))
+        .setDescription(lb.join("\n"))
         .setColor("#9b59b6");
-
       return msg.channel.send({ embeds: [embed] });
     }
 
-    // ===== ADMIN SYSTEM =====
-
-    // -------- GIVE --------
-
+    // 💎 Give command (Only you + friend with restrictions)
     if (args[0] === "give") {
       const amount = parseInt(args[1]);
       const target = msg.mentions.users.first();
       if (!amount || !target) return msg.reply("✨ Usage: *aura give <amount> @user");
 
-      if (user.id === OWNER_ID) {
-        getUserAura(target.id).aura += amount;
+      if (msg.author.id === "768471167769116712") {
+        // you
+        const targetData = getUserAura(target.id);
+        targetData.aura += amount;
         saveAura();
-        return msg.reply(✅ Gave ${amount} aura to ${target.username}!);
-      }
-
-      if (user.id === FRIEND_ID) {
-        if (amount > 500 || amount < 1) return msg.reply("❌ Max limit is 500.");
-        getUserAura(target.id).aura += amount;
+        return msg.reply(`✅ Gave **${amount} aura** to ${target.username}! 🌟`);
+      } else if (msg.author.id === "1299049965863178424") {
+        // friend
+        if (amount < -500 || amount > 500) return msg.reply("⚠️ You can only give between -500 and 500 aura!");
+        const targetData = getUserAura(target.id);
+        targetData.aura += amount;
         saveAura();
-        return msg.reply(✅ Gave ${amount} aura to ${target.username}!);
-      }
-
-      return msg.reply("❌ You can’t use this command!");
+        return msg.reply(`✅ Gave **${amount} aura** to ${target.username}! 🌟`);
+      } else return msg.reply("🚫 You don’t have permission to use this command!");
     }
 
-    // -------- TAKE --------
-
+    // 🛠 Take command (me + friend)
     if (args[0] === "take") {
       const amount = parseInt(args[1]);
       const target = msg.mentions.users.first();
       if (!amount || !target) return msg.reply("✨ Usage: *aura take <amount> @user");
 
-      if (user.id === OWNER_ID) {
-        getUserAura(target.id).aura -= amount;
+      if (msg.author.id === "768471167769116712") {
+        const targetData = getUserAura(target.id);
+        targetData.aura -= amount;
         saveAura();
-        return msg.reply(✅ Took ${amount} aura from ${target.username}!);
-      }
-
-      if (user.id === FRIEND_ID) {
-        if (amount > 500 || amount < 1) return msg.reply("❌ Max limit is 500.");
-        getUserAura(target.id).aura -= amount;
+        return msg.reply(`✅ Took **${amount} aura** from ${target.username}! 🌟`);
+      } else if (msg.author.id === "1299049965863178424") {
+        if (amount < -500 || amount > 500) return msg.reply("⚠️ You can only take between -500 and 500 aura!");
+        const targetData = getUserAura(target.id);
+        targetData.aura -= amount;
         saveAura();
-        return msg.reply(✅ Took ${amount} aura from ${target.username}!);
-      }
-
-      return msg.reply("❌ You can’t use this command!");
+        return msg.reply(`✅ Took **${amount} aura** from ${target.username}! 🌟`);
+      } else return msg.reply("🚫 You don’t have permission to use this command!");
     }
 
-    // -------- RESET --------
-
+    // 🛡 Reset command (only me)
     if (args[0] === "reset") {
-      if (user.id !== OWNER_ID) return msg.reply("❌ You can’t use this command!");
+      if (msg.author.id !== "768471167769116712") return msg.reply("🚫 You don’t have permission to use this command!");
       const target = msg.mentions.users.first();
       if (!target) return msg.reply("✨ Usage: *aura reset @user");
-
-      getUserAura(target.id).aura = 0;
+      const targetData = getUserAura(target.id);
+      targetData.aura = 0;
       saveAura();
-      return msg.reply(🔄 Reset ${target.username}'s aura);
+      return msg.reply(`♻️ Reset aura of ${target.username} to 0!`);
     }
 
-    // -------- SET --------
-
+    // ⚡ Set command (only me)
     if (args[0] === "set") {
-      if (user.id !== OWNER_ID) return msg.reply("❌ You can’t use this command!");
+      if (msg.author.id !== "768471167769116712") return msg.reply("🚫 You don’t have permission to use this command!");
       const amount = parseInt(args[1]);
-      const target = msg.mentions.users.first();
-      if (!amount || !target) return msg.reply("✨ Usage: *aura set <amount> @user");
-
-      getUserAura(target.id).aura = amount;
+      const target = msg.mentions.users.first() || msg.author;
+      if (isNaN(amount)) return msg.reply("⚠️ Enter a valid aura amount!");
+      const targetData = getUserAura(target.id);
+      targetData.aura = amount;
       saveAura();
-      return msg.reply(✅ Set ${target.username} to ${amount} aura);
+      return msg.reply(`🔧 Set aura of ${target.username} to ${amount}!`);
     }
 
-    // -------- VIEW --------
-    return msg.reply(🌌 Your aura: **${userData.aura}**);
+    // Default aura view
+    return msg.reply(`🌌 Your aura: **${userData.aura}**`);
   }
 
-  // HELP
+  // Help command
   if (command === "help") {
     const embed = new EmbedBuilder()
       .setTitle("📜 MXaura Commands")
       .setDescription(`
 *aura — show aura  
-*aura gamble <amount>  
-*aura battle <amount> @user  
-*aura accept  
-*aura leaderboard  
-
-💫 Aura resets daily at 12AM (India time).
-`)
+*aura gamble <amount> — gamble aura  
+*aura battle <amount> @user — challenge someone  
+*aura accept — accept battle  
+*aura leaderboard — show top aura  
+💫 Aura resets daily at midnight (India time).`)
       .setColor("#a29bfe");
-
     msg.channel.send({ embeds: [embed] });
   }
 });
