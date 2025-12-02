@@ -127,13 +127,142 @@ client.once("ready", async () => {
 });
 
 // ------------------------------
+// PREFIX COMMAND HANDLER (*aura ...)
+// ------------------------------
+client.on("messageCreate", async message => {
+  if (!message.content.startsWith(prefix) || message.author.bot) return;
+
+  const args = message.content.slice(prefix.length).trim().split(/ +/);
+  const cmd = args.shift()?.toLowerCase();
+  const userData = getUserAura(message.author.id);
+
+  if (cmd === "aura") {
+    const sub = args.shift()?.toLowerCase();
+
+    if (!sub) return message.reply(`✨ Your aura is **${userData.aura}**`);
+
+    // gamble
+    if (sub === "gamble") {
+      const amount = parseInt(args[0]);
+      if (!amount || amount <= 0) return message.reply("❌ Enter valid amount!");
+      if (userData.aura < amount) return message.reply("❌ You don’t have enough aura!");
+      const win = Math.random() < 0.5;
+      if (win) userData.aura += amount;
+      else userData.aura -= amount;
+      saveAura();
+      return message.reply(win ? `🎲 You won! +${amount} aura.` : `💀 You lost! -${amount} aura.`);
+    }
+
+    // battle
+    if (sub === "battle") {
+      const amount = parseInt(args[0]);
+      const target = message.mentions.users.first();
+      if (!amount || !target) return message.reply("❌ Usage: *aura battle <amount> @user");
+      if (target.bot || target.id === message.author.id) return message.reply("😅 You can’t battle yourself or bots!");
+      const targetData = getUserAura(target.id);
+      if (userData.aura < amount || targetData.aura < amount) return message.reply("❌ Not enough aura to battle!");
+      aura[target.id].pendingBattle = { challenger: message.author.id, amount };
+      return message.reply(`⚔️ ${target}, ${message.author.username} challenges you for **${amount} aura!** Type *aura accept to fight.`);
+    }
+
+    // accept
+    if (sub === "accept") {
+      const pending = aura[message.author.id]?.pendingBattle;
+      if (!pending) return message.reply("❌ No one has challenged you!");
+      const challenger = await client.users.fetch(pending.challenger);
+      const challengerData = getUserAura(challenger.id);
+      const targetData = getUserAura(message.author.id);
+      const amount = pending.amount;
+      delete targetData.pendingBattle;
+      const challengerRoll = Math.floor(Math.random() * 100);
+      const targetRoll = Math.floor(Math.random() * 100);
+      let result = `🎲 ${challenger.username} rolled ${challengerRoll}\n🎲 ${message.author.username} rolled ${targetRoll}\n`;
+      if (targetRoll > challengerRoll) {
+        targetData.aura += amount;
+        challengerData.aura -= amount;
+        result += `🏆 ${message.author.username} wins **${amount} aura!**`;
+      } else if (challengerRoll > targetRoll) {
+        targetData.aura -= amount;
+        challengerData.aura += amount;
+        result += `🏆 ${challenger.username} wins **${amount} aura!**`;
+      } else result += "🤝 It's a tie!";
+      saveAura();
+      return message.reply(result);
+    }
+
+    // leaderboard
+    if (sub === "leaderboard") {
+      const sorted = Object.entries(aura).sort((a, b) => b[1].aura - a[1].aura).slice(0, 10);
+      const lb = await Promise.all(sorted.map(async ([id, data], i) => {
+        const u = await client.users.fetch(id).catch(() => null);
+        return `${i + 1}. ${u ? u.username : "Unknown"} — ${data.aura}`;
+      }));
+      const embed = new EmbedBuilder().setTitle("🏆 MXaura Leaderboard").setDescription(lb.join("\n")).setColor("#9b59b6");
+      return message.reply({ embeds: [embed] });
+    }
+
+    // give
+    if (sub === "give") {
+      const amount = parseInt(args[0]);
+      const target = message.mentions.users.first();
+      if (!target) return message.reply("❌ Mention a user!");
+      if (message.author.id === "1299049965863178424") {
+        if (amount < -500 || amount > 500) return message.reply("⚠️ You can only give between -500 and 500 aura!");
+      } else if (message.author.id !== "768471167769116712") {
+        return message.reply("🚫 You don’t have permission to use this command!");
+      }
+      const targetData = getUserAura(target.id);
+      targetData.aura += amount;
+      saveAura();
+      return message.reply(`✅ Gave **${amount} aura** to ${target.username}! 🌟`);
+    }
+
+    // take
+    if (sub === "take") {
+      const amount = parseInt(args[0]);
+      const target = message.mentions.users.first();
+      if (!target) return message.reply("❌ Mention a user!");
+      if (message.author.id === "1299049965863178424") {
+        if (amount < -500 || amount > 500) return message.reply("⚠️ You can only take between -500 and 500 aura!");
+      } else if (message.author.id !== "768471167769116712") {
+        return message.reply("🚫 You don’t have permission to use this command!");
+      }
+      const targetData = getUserAura(target.id);
+      targetData.aura -= amount;
+      saveAura();
+      return message.reply(`✅ Took **${amount} aura** from ${target.username}! 🌟`);
+    }
+
+    // reset
+    if (sub === "reset") {
+      if (message.author.id !== "768471167769116712") return message.reply("🚫 You don’t have permission to use this command!");
+      const target = message.mentions.users.first();
+      const targetData = getUserAura(target.id);
+      targetData.aura = 0;
+      saveAura();
+      return message.reply(`♻️ Reset aura of ${target.username} to 0!`);
+    }
+
+    // set
+    if (sub === "set") {
+      if (message.author.id !== "768471167769116712") return message.reply("🚫 You don’t have permission to use this command!");
+      const amount = parseInt(args[0]);
+      const target = message.mentions.users.first() || message.author;
+      const targetData = getUserAura(target.id);
+      targetData.aura = amount;
+      saveAura();
+      return message.reply(`🔧 Set aura of ${target.username} to ${amount}!`);
+    }
+  }
+});
+
+// ------------------------------
 // Handle slash commands
 // ------------------------------
 client.on("interactionCreate", async interaction => {
   if (!interaction.isCommand()) return;
   const userData = getUserAura(interaction.user.id);
 
-  // /help
   if (interaction.commandName === "help") {
     const embed = new EmbedBuilder()
       .setTitle("📜 MXaura Commands")
@@ -148,7 +277,6 @@ client.on("interactionCreate", async interaction => {
     return interaction.reply({ embeds: [embed] });
   }
 
-  // /prefix
   if (interaction.commandName === "prefix") {
     if (interaction.user.id !== "768471167769116712") return interaction.reply("🚫 You don’t have permission to use this command!");
     const newPrefix = interaction.options.getString("new");
@@ -156,122 +284,14 @@ client.on("interactionCreate", async interaction => {
     return interaction.reply(`✅ Prefix changed to **${newPrefix}**`);
   }
 
-  // /aura
   if (interaction.commandName === "aura") {
-    const sub = interaction.options.getSubcommand();
-
-    // Gamble
-    if (sub === "gamble") {
-      const amount = interaction.options.getInteger("amount");
-      if (userData.aura < amount) return interaction.reply("❌ You don’t have enough aura!");
-      const win = Math.random() < 0.5;
-      if (win) userData.aura += amount;
-      else userData.aura -= amount;
-      saveAura();
-      return interaction.reply(win ? `🎲 You won! +${amount} aura.` : `💀 You lost! -${amount} aura.`);
-    }
-
-    // Battle
-    if (sub === "battle") {
-      const amount = interaction.options.getInteger("amount");
-      const target = interaction.options.getUser("user");
-      if (target.bot || target.id === interaction.user.id) return interaction.reply("😅 You can’t battle yourself or bots!");
-      const targetData = getUserAura(target.id);
-      if (userData.aura < amount || targetData.aura < amount) return interaction.reply("❌ Not enough aura to battle!");
-      aura[target.id].pendingBattle = { challenger: interaction.user.id, amount };
-      await interaction.reply(`⚔️ ${target}, ${interaction.user.username} challenges you for **${amount} aura!** Type /aura accept to fight.`);
-    }
-
-    // Accept
-    if (sub === "accept") {
-      const pending = aura[interaction.user.id]?.pendingBattle;
-      if (!pending) return interaction.reply("❌ No one has challenged you!");
-      const challenger = await client.users.fetch(pending.challenger);
-      const challengerData = getUserAura(challenger.id);
-      const targetData = getUserAura(interaction.user.id);
-      const amount = pending.amount;
-      delete targetData.pendingBattle;
-      const challengerRoll = Math.floor(Math.random() * 100);
-      const targetRoll = Math.floor(Math.random() * 100);
-      let result = `🎲 ${challenger.username} rolled ${challengerRoll}\n🎲 ${interaction.user.username} rolled ${targetRoll}\n`;
-      if (targetRoll > challengerRoll) {
-        targetData.aura += amount;
-        challengerData.aura -= amount;
-        result += `🏆 ${interaction.user.username} wins **${amount} aura!**`;
-      } else if (challengerRoll > targetRoll) {
-        targetData.aura -= amount;
-        challengerData.aura += amount;
-        result += `🏆 ${challenger.username} wins **${amount} aura!**`;
-      } else result += "🤝 It's a tie!";
-      saveAura();
-      return interaction.reply(result);
-    }
-
-    // Leaderboard
-    if (sub === "leaderboard") {
-      const sorted = Object.entries(aura).sort((a, b) => b[1].aura - a[1].aura).slice(0, 10);
-      const lb = await Promise.all(sorted.map(async ([id, data], i) => {
-        const u = await client.users.fetch(id).catch(() => null);
-        return `${i + 1}. ${u ? u.username : "Unknown"} — ${data.aura}`;
-      }));
-      const embed = new EmbedBuilder().setTitle("🏆 MXaura Leaderboard").setDescription(lb.join("\n")).setColor("#9b59b6");
-      return interaction.reply({ embeds: [embed] });
-    }
-
-    // Give
-    if (sub === "give") {
-      const amount = interaction.options.getInteger("amount");
-      const target = interaction.options.getUser("user");
-
-      if (interaction.user.id === "1299049965863178424") {
-        if (amount < -500 || amount > 500) return interaction.reply("⚠️ You can only give between -500 and 500 aura!");
-      } else if (interaction.user.id !== "768471167769116712") {
-        return interaction.reply("🚫 You don’t have permission to use this command!");
-      }
-
-      const targetData = getUserAura(target.id);
-      targetData.aura += amount;
-      saveAura();
-      return interaction.reply(`✅ Gave **${amount} aura** to ${target.username}! 🌟`);
-    }
-
-    // Take
-    if (sub === "take") {
-      const amount = interaction.options.getInteger("amount");
-      const target = interaction.options.getUser("user");
-
-      if (interaction.user.id === "1299049965863178424") {
-        if (amount < -500 || amount > 500) return interaction.reply("⚠️ You can only take between -500 and 500 aura!");
-      } else if (interaction.user.id !== "768471167769116712") {
-        return interaction.reply("🚫 You don’t have permission to use this command!");
-      }
-
-      const targetData = getUserAura(target.id);
-      targetData.aura -= amount;
-      saveAura();
-      return interaction.reply(`✅ Took **${amount} aura** from ${target.username}! 🌟`);
-    }
-
-    // Reset
-    if (sub === "reset") {
-      if (interaction.user.id !== "768471167769116712") return interaction.reply("🚫 You don’t have permission to use this command!");
-      const target = interaction.options.getUser("user");
-      const targetData = getUserAura(target.id);
-      targetData.aura = 0;
-      saveAura();
-      return interaction.reply(`♻️ Reset aura of ${target.username} to 0!`);
-    }
-
-    // Set
-    if (sub === "set") {
-      if (interaction.user.id !== "768471167769116712") return interaction.reply("🚫 You don’t have permission to use this command!");
-      const amount = interaction.options.getInteger("amount");
-      const target = interaction.options.getUser("user") || interaction.user;
-      const targetData = getUserAura(target.id);
-      targetData.aura = amount;
-      saveAura();
-      return interaction.reply(`🔧 Set aura of ${target.username} to ${amount}!`);
-    }
+    const fakeMsg = {
+      content: prefix + "aura " + interaction.options.getSubcommand() + " " + interaction.options.data[0]?.options?.map(x => x.value || "").join(" "),
+      author: interaction.user,
+      mentions: interaction.options.getUser("user") ? { users: new Map([[interaction.options.getUser("user").id, interaction.options.getUser("user")]]) } : { users: new Map() },
+      reply: (msg) => interaction.reply(msg)
+    };
+    client.emit("messageCreate", fakeMsg);
   }
 });
 
