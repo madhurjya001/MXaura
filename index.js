@@ -11,7 +11,7 @@ const client = new Client({
   intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent],
 });
 
-const prefix = "*";
+let prefix = "*";
 const DATA_FILE = "auraData.json";
 let aura = {};
 
@@ -59,6 +59,37 @@ setInterval(() => {
 client.on("ready", () => console.log(`✅ Logged in as ${client.user.tag}`));
 
 client.on("messageCreate", async (msg) => {
+
+  // =======================
+  // ✅ SLASH COMMANDS ADDED
+  // =======================
+  if (msg.content === "/help") {
+    const embed = new EmbedBuilder()
+      .setTitle("📜 MXaura Commands")
+      .setDescription(`
+*aura — show aura  
+*aura gamble <amount> — gamble aura  
+*aura battle <amount> @user — challenge someone  
+*aura accept — accept battle  
+*aura leaderboard — show top aura  
+💫 Aura resets daily at midnight (India time).`)
+      .setColor("#a29bfe");
+    return msg.channel.send({ embeds: [embed] });
+  }
+
+  if (msg.content.startsWith("/prefix")) {
+    if (msg.author.id !== "768471167769116712")
+      return msg.reply("🚫 You don’t have permission to use this command!");
+
+    const newPrefix = msg.content.split(" ")[1];
+    if (!newPrefix) return msg.reply("⚠️ Provide a new prefix!");
+    prefix = newPrefix;
+    return msg.reply(`✅ Prefix changed to **${newPrefix}**`);
+  }
+  // =======================
+  // SLASH COMMANDS END
+  // =======================
+
   if (!msg.content.startsWith(prefix) || msg.author.bot) return;
   const args = msg.content.slice(prefix.length).trim().split(/ +/);
   const command = args.shift().toLowerCase();
@@ -148,13 +179,11 @@ client.on("messageCreate", async (msg) => {
       if (!amount || !target) return msg.reply("✨ Usage: *aura give <amount> @user");
 
       if (msg.author.id === "768471167769116712") {
-        // you
         const targetData = getUserAura(target.id);
         targetData.aura += amount;
         saveAura();
         return msg.reply(`✅ Gave **${amount} aura** to ${target.username}! 🌟`);
       } else if (msg.author.id === "1299049965863178424") {
-        // friend
         if (amount < -500 || amount > 500) return msg.reply("⚠️ You can only give between -500 and 500 aura!");
         const targetData = getUserAura(target.id);
         targetData.aura += amount;
@@ -206,11 +235,10 @@ client.on("messageCreate", async (msg) => {
       return msg.reply(`🔧 Set aura of ${target.username} to ${amount}!`);
     }
 
-    // Default aura view
     return msg.reply(`🌌 Your aura: **${userData.aura}**`);
   }
 
-  // Help command
+  // Help command (prefix)
   if (command === "help") {
     const embed = new EmbedBuilder()
       .setTitle("📜 MXaura Commands")
