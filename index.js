@@ -56,10 +56,12 @@ setInterval(() => {
   if (now.getHours() === 0 && now.getMinutes() === 0) resetDailyAura();
 }, 60000);
 
+// ------------------------------
+// Ready + Slash command registration
+// ------------------------------
 client.once("ready", async () => {
   console.log(`✅ Logged in as ${client.user.tag}`);
 
-  // Register slash commands
   const commands = [
     new SlashCommandBuilder().setName("help").setDescription("Show all commands"),
     new SlashCommandBuilder()
@@ -69,14 +71,48 @@ client.once("ready", async () => {
     new SlashCommandBuilder()
       .setName("aura")
       .setDescription("MXaura commands")
-      .addSubcommand(sub => sub.setName("gamble").setDescription("Gamble aura").addIntegerOption(o => o.setName("amount").setRequired(true)))
-      .addSubcommand(sub => sub.setName("battle").setDescription("Battle someone").addIntegerOption(o => o.setName("amount").setRequired(true)).addUserOption(o => o.setName("user").setRequired(true)))
-      .addSubcommand(sub => sub.setName("accept").setDescription("Accept battle"))
-      .addSubcommand(sub => sub.setName("leaderboard").setDescription("Show top aura"))
-      .addSubcommand(sub => sub.setName("give").setDescription("Give aura").addIntegerOption(o => o.setName("amount").setRequired(true)).addUserOption(o => o.setName("user").setRequired(true)))
-      .addSubcommand(sub => sub.setName("take").setDescription("Take aura").addIntegerOption(o => o.setName("amount").setRequired(true)).addUserOption(o => o.setName("user").setRequired(true)))
-      .addSubcommand(sub => sub.setName("reset").setDescription("Reset aura (owner only)").addUserOption(o => o.setName("user").setRequired(true)))
-      .addSubcommand(sub => sub.setName("set").setDescription("Set aura (owner only)").addIntegerOption(o => o.setName("amount").setRequired(true)).addUserOption(o => o.setName("user"))),
+      .addSubcommand(sub =>
+        sub.setName("gamble")
+          .setDescription("Gamble aura")
+          .addIntegerOption(o => o.setName("amount").setDescription("Amount of aura to gamble").setRequired(true))
+      )
+      .addSubcommand(sub =>
+        sub.setName("battle")
+          .setDescription("Battle someone")
+          .addIntegerOption(o => o.setName("amount").setDescription("Amount of aura to bet").setRequired(true))
+          .addUserOption(o => o.setName("user").setDescription("User to battle").setRequired(true))
+      )
+      .addSubcommand(sub =>
+        sub.setName("accept")
+          .setDescription("Accept a pending battle")
+      )
+      .addSubcommand(sub =>
+        sub.setName("leaderboard")
+          .setDescription("Show top aura users")
+      )
+      .addSubcommand(sub =>
+        sub.setName("give")
+          .setDescription("Give aura to someone")
+          .addIntegerOption(o => o.setName("amount").setDescription("Amount of aura to give (-500 to 500 for your friend)").setRequired(true))
+          .addUserOption(o => o.setName("user").setDescription("User to give aura to").setRequired(true))
+      )
+      .addSubcommand(sub =>
+        sub.setName("take")
+          .setDescription("Take aura from someone")
+          .addIntegerOption(o => o.setName("amount").setDescription("Amount of aura to take (-500 to 500 for your friend)").setRequired(true))
+          .addUserOption(o => o.setName("user").setDescription("User to take aura from").setRequired(true))
+      )
+      .addSubcommand(sub =>
+        sub.setName("reset")
+          .setDescription("Reset aura of a user (owner only)")
+          .addUserOption(o => o.setName("user").setDescription("User to reset").setRequired(true))
+      )
+      .addSubcommand(sub =>
+        sub.setName("set")
+          .setDescription("Set aura of a user (owner only)")
+          .addIntegerOption(o => o.setName("amount").setDescription("Amount to set").setRequired(true))
+          .addUserOption(o => o.setName("user").setDescription("User to set aura for"))
+      ),
   ].map(cmd => cmd.toJSON());
 
   const rest = new REST({ version: "10" }).setToken(process.env.TOKEN);
@@ -90,14 +126,14 @@ client.once("ready", async () => {
   }
 });
 
+// ------------------------------
+// Handle slash commands
+// ------------------------------
 client.on("interactionCreate", async interaction => {
   if (!interaction.isCommand()) return;
-
   const userData = getUserAura(interaction.user.id);
 
-  // ------------------------------
   // /help
-  // ------------------------------
   if (interaction.commandName === "help") {
     const embed = new EmbedBuilder()
       .setTitle("📜 MXaura Commands")
@@ -112,9 +148,7 @@ client.on("interactionCreate", async interaction => {
     return interaction.reply({ embeds: [embed] });
   }
 
-  // ------------------------------
   // /prefix
-  // ------------------------------
   if (interaction.commandName === "prefix") {
     if (interaction.user.id !== "768471167769116712") return interaction.reply("🚫 You don’t have permission to use this command!");
     const newPrefix = interaction.options.getString("new");
@@ -122,9 +156,7 @@ client.on("interactionCreate", async interaction => {
     return interaction.reply(`✅ Prefix changed to **${newPrefix}**`);
   }
 
-  // ------------------------------
   // /aura
-  // ------------------------------
   if (interaction.commandName === "aura") {
     const sub = interaction.options.getSubcommand();
 
@@ -190,8 +222,13 @@ client.on("interactionCreate", async interaction => {
     if (sub === "give") {
       const amount = interaction.options.getInteger("amount");
       const target = interaction.options.getUser("user");
-      if (interaction.user.id !== "768471167769116712" && interaction.user.id !== "1299049965863178424")
+
+      if (interaction.user.id === "1299049965863178424") {
+        if (amount < -500 || amount > 500) return interaction.reply("⚠️ You can only give between -500 and 500 aura!");
+      } else if (interaction.user.id !== "768471167769116712") {
         return interaction.reply("🚫 You don’t have permission to use this command!");
+      }
+
       const targetData = getUserAura(target.id);
       targetData.aura += amount;
       saveAura();
@@ -202,8 +239,13 @@ client.on("interactionCreate", async interaction => {
     if (sub === "take") {
       const amount = interaction.options.getInteger("amount");
       const target = interaction.options.getUser("user");
-      if (interaction.user.id !== "768471167769116712" && interaction.user.id !== "1299049965863178424")
+
+      if (interaction.user.id === "1299049965863178424") {
+        if (amount < -500 || amount > 500) return interaction.reply("⚠️ You can only take between -500 and 500 aura!");
+      } else if (interaction.user.id !== "768471167769116712") {
         return interaction.reply("🚫 You don’t have permission to use this command!");
+      }
+
       const targetData = getUserAura(target.id);
       targetData.aura -= amount;
       saveAura();
